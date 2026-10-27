@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>eMudhra MITM</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-lockup">
+        <div class="brand-mark" aria-hidden="true">EM</div>
+        <div class="brand-copy">
+          <h1>eMudhra MITM</h1>
+          <p id="backend-state">正在连接本地服务</p>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <div class="runtime-pill" id="runtime-pill" data-state="stopped" aria-live="polite">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span id="runtime-text">已停止</span>
+        </div>
+        <button class="icon-button" id="refresh-button" type="button" title="刷新状态" aria-label="刷新状态">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M21 12a9 9 0 0 0-15.5-6.2L3 8"></path>
+            <path d="M3 3v5h5"></path>
+            <path d="M3 12a9 9 0 0 0 15.5 6.2L21 16"></path>
+            <path d="M21 21v-5h-5"></path>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <nav class="view-tabs" role="tablist" aria-label="功能页面">
+      <button class="view-tab" id="proxy-tab" type="button" role="tab" aria-selected="true" aria-controls="proxy-view" data-view="proxy">
+        代理配置
+      </button>
+      <button class="view-tab" id="frida-tab" type="button" role="tab" aria-selected="false" aria-controls="frida-view" data-view="frida">
+        Android 抓包
+      </button>
+    </nav>
+
+    <main class="views">
+      <section class="view" id="proxy-view" role="tabpanel" aria-labelledby="proxy-tab">
+        <div class="layout">
+          <section class="panel config-panel" aria-labelledby="config-title">
+            <div class="panel-heading">
+              <h2 id="config-title">代理配置</h2>
+              <span class="version-label" id="version-label"></span>
+            </div>
+
+            <form id="config-form" autocomplete="off">
+              <label class="field" for="ca-name">
+                <span class="field-label">CA</span>
+                <select id="ca-name" name="ca_name" required>
+                  <option value="01-EM-OV-TLS-CA-G3C">01-EM-OV-TLS-CA-G3C</option>
+                </select>
+              </label>
+
+              <div class="ca-summary" id="ca-summary">
+                <span id="ca-summary-name">正在读取 CA 信息</span>
+                <span id="ca-summary-validity"></span>
+              </div>
+
+              <label class="field" for="listen-host">
+                <span class="field-label">监听地址</span>
+                <input id="listen-host" name="listen_host" type="text" value="0.0.0.0" spellcheck="false" required>
+              </label>
+
+              <div class="field-grid">
+                <label class="field" for="listen-port">
+                  <span class="field-label">HTTP 端口</span>
+                  <input id="listen-port" name="listen_port" type="number" inputmode="numeric" min="1" max="65535" value="28081" required>
+                </label>
+                <label class="field" for="socks-port">
+                  <span class="field-label">SOCKS5 端口</span>
+                  <input id="socks-port" name="socks_port" type="number" inputmode="numeric" min="1" max="65535" value="28082" required>
+                </label>
+              </div>
+
+              <label class="field" for="upstream">
+                <span class="field-label">上游代理</span>
+                <input id="upstream" name="upstream" type="url" value="http://127.0.0.1:9000" spellcheck="false" required>
+              </label>
+            </form>
+
+            <div class="action-row">
+              <button class="button primary-button" id="start-button" type="button" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <polygon points="6 3 20 12 6 21 6 3"></polygon>
+                </svg>
+                <span>启动</span>
+              </button>
+              <button class="button danger-button" id="stop-button" type="button" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect width="14" height="14" x="5" y="5" rx="1"></rect>
+                </svg>
+                <span>停止</span>
+              </button>
+            </div>
+          </section>
+
+          <section class="panel runtime-panel" aria-labelledby="runtime-title">
+            <div class="panel-heading">
+              <h2 id="runtime-title">运行状态</h2>
+              <span class="updated-label" id="updated-label">尚未刷新</span>
+            </div>
+
+            <div class="endpoint-list">
+              <div class="endpoint-row">
+                <span>HTTP</span>
+                <code id="http-endpoint">0.0.0.0:28081</code>
+              </div>
+              <div class="endpoint-row">
+                <span>SOCKS5</span>
+                <code id="socks-endpoint">0.0.0.0:28082</code>
+              </div>
+              <div class="endpoint-row">
+                <span>上游</span>
+                <code id="upstream-endpoint">http://127.0.0.1:9000</code>
+              </div>
+            </div>
+
+            <div class="diagnostics">
+              <div class="diagnostics-heading">
+                <h3>运行诊断</h3>
+                <div class="diagnostics-actions">
+                  <span class="status-chip" id="diagnostics-state" data-state="stopped">等待启动</span>
+                  <button class="copy-button" id="copy-diagnostics-button" type="button" title="复制运行诊断" disabled>
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <rect width="14" height="14" x="8" y="8" rx="2"></rect>
+                      <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
+                    </svg>
+                    <span>复制</span>
+                  </button>
+                </div>
+              </div>
+              <pre id="diagnostics-output">暂无诊断输出</pre>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="frida-view" role="tabpanel" aria-labelledby="frida-tab" hidden>
+        <div class="frida-layout">
+          <section class="panel frida-device-panel" aria-labelledby="frida-device-title">
+            <div class="panel-heading">
+              <h2 id="frida-device-title">设备与代理</h2>
+            </div>
+
+            <div class="frida-body">
+              <div class="adb-picker">
+                <div class="adb-picker-heading">
+                  <span>ADB 设备与应用</span>
+                  <span class="adb-status" id="adb-status-line" data-state="checking">检测中</span>
+                </div>
+
+                <label class="field" for="adb-device-select">
+                  <span class="field-label">Android 设备</span>
+                  <select id="adb-device-select" disabled>
+                    <option value="">正在检测设备</option>
+                  </select>
+                </label>
+
+                <div class="picker-with-action">
+                  <label class="field" for="adb-app-select">
+                  <span class="field-label">应用名称</span>
+                    <select id="adb-app-select" disabled>
+                      <option value="">请先选择设备</option>
+                    </select>
+                  </label>
+                  <button class="icon-button" id="refresh-adb-button" type="button" title="刷新 ADB 设备和应用" aria-label="刷新 ADB 设备和应用">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M21 12a9 9 0 0 0-15.5-6.2L3 8"></path>
+                      <path d="M3 3v5h5"></path>
+                      <path d="M3 12a9 9 0 0 0 15.5 6.2L21 16"></path>
+                      <path d="M21 21v-5h-5"></path>
+                    </svg>
+                  </button>
+                </div>
+
+                <div class="adb-proxy-control">
+                  <div class="adb-proxy-heading">
+                    <span>系统代理</span>
+                    <span class="adb-status" id="adb-proxy-status" data-state="stopped">未设置</span>
+                  </div>
+                  <div class="adb-proxy-actions">
+                    <button class="button primary-button" id="apply-adb-proxy-button" type="button" title="启动本工具代理并设置所选 Android 设备的系统代理" disabled>
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M5 12.55a11 11 0 0 1 14.08 0"></path>
+                        <path d="M8.53 15.11a6 6 0 0 1 6.95 0"></path>
+                        <path d="M12 18h.01"></path>
+                      </svg>
+                      <span>启动并应用代理</span>
+                    </button>
+                    <button class="button secondary-button" id="restore-adb-proxy-button" type="button" disabled>
+                      <span>恢复代理</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <details class="wireless-adb">
+                <summary>
+                  <span>无线 ADB</span>
+                  <span class="adb-status" id="wireless-status" data-state="stopped">未连接</span>
+                </summary>
+                <div class="wireless-adb-body">
+                  <label class="field" for="wireless-device-endpoint">
+                    <span class="field-label">设备地址</span>
+                    <input
+                      id="wireless-device-endpoint"
+                      type="text"
+                      placeholder="192.168.1.20:5555"
+                      spellcheck="false"
+                      autocomplete="off"
+                      pattern="\[[0-9A-Fa-f:]+\]:[0-9]{1,5}|[^:\s]+:[0-9]{1,5}"
+                      required
+                    >
+                  </label>
+
+                  <div class="wireless-pair-grid">
+                    <label class="field" for="wireless-pairing-endpoint">
+                      <span class="field-label">配对地址</span>
+                      <input
+                        id="wireless-pairing-endpoint"
+                        type="text"
+                        placeholder="192.168.1.20:37123"
+                        spellcheck="false"
+                        autocomplete="off"
+                        pattern="\[[0-9A-Fa-f:]+\]:[0-9]{1,5}|[^:\s]+:[0-9]{1,5}"
+                      >
+                    </label>
+                    <label class="field" for="wireless-pairing-code">
+                      <span class="field-label">配对码</span>
+                      <input
+                        id="wireless-pairing-code"
+                        type="password"
+                        placeholder="6 位数字"
+                        inputmode="numeric"
+                        autocomplete="off"
+                        pattern="[0-9]{6}"
+                      >
+                    </label>
+                  </div>
+
+                  <div class="wireless-actions">
+                    <button class="button secondary-button" id="adb-connect-button" type="button">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M5 12.55a11 11 0 0 1 14.08 0"></path>
+                        <path d="M8.53 15.11a6 6 0 0 1 6.95 0"></path>
+                        <path d="M12 18h.01"></path>
+                      </svg>
+                      <span>连接</span>
+                    </button>
+                    <button class="button primary-button" id="adb-pair-button" type="button">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M10 13a5 5 0 0 0 7.07 0l2-2a5 5 0 0 0-7.07-7.07l-1.1 1.1"></path>
+                        <path d="M14 11a5 5 0 0 0-7.07 0l-2 2A5 5 0 0 0 12 20.07l1.1-1.1"></path>
+                      </svg>
+                      <span>配对并连接</span>
+                    </button>
+                    <button class="button danger-button" id="adb-disconnect-button" type="button">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="m19 5-5 5"></path>
+                        <path d="m5 19 5-5"></path>
+                        <path d="M8 12 3 7l4-4 5 5"></path>
+                        <path d="m16 12 5 5-4 4-5-5"></path>
+                      </svg>
+                      <span>断开</span>
+                    </button>
+                  </div>
+                </div>
+              </details>
+
+              <label class="field" for="frida-package">
+                <span class="field-label">Android 包名</span>
+                <input
+                  id="frida-package"
+                  type="text"
+                  placeholder="com.example.app"
+                  spellcheck="false"
+                  autocomplete="off"
+                  pattern="[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+"
+                  required
+                >
+              </label>
+            </div>
+          </section>
+
+          <div class="frida-right-column">
+            <section class="panel frida-runner" aria-labelledby="frida-runner-title">
+              <div class="panel-heading">
+                <h2 id="frida-runner-title">Frida 注入</h2>
+                <span class="status-chip" id="frida-status" data-state="stopped">检测中</span>
+              </div>
+
+              <div class="frida-body">
+                <p class="frida-priority-note">
+                  启动 Frida 会同时启动代理并应用设备系统代理；仅需系统代理抓包时，可直接使用“启动并应用代理”。
+                </p>
+
+              <div class="script-summary">
+                <div>
+                  <span class="field-label">SSL Pinning 脚本</span>
+                  <code id="frida-script-path">正在读取脚本路径</code>
+                </div>
+                <button class="icon-button" id="copy-frida-command-button" type="button" title="复制 Frida 命令" aria-label="复制 Frida 命令">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <rect width="14" height="14" x="8" y="8" rx="2"></rect>
+                    <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
+                  </svg>
+                </button>
+              </div>
+
+              <div class="action-row frida-actions">
+                <button class="button primary-button" id="frida-start-button" type="button" title="启动本工具代理、应用设备代理并注入 Frida" disabled>
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <polygon points="6 3 20 12 6 21 6 3"></polygon>
+                  </svg>
+                  <span>启动 Frida 与代理</span>
+                </button>
+                <button class="button danger-button" id="frida-stop-button" type="button" disabled>
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <rect width="14" height="14" x="5" y="5" rx="1"></rect>
+                  </svg>
+                  <span>停止</span>
+                </button>
+              </div>
+
+              <div class="diagnostics frida-log-panel">
+                <div class="diagnostics-heading">
+                  <h3>Frida 日志</h3>
+                  <div class="diagnostics-actions">
+                    <span class="updated-label" id="frida-log-state">尚未启动</span>
+                    <button class="copy-button" id="copy-frida-log-button" type="button" title="复制 Frida 日志" disabled>
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <rect width="14" height="14" x="8" y="8" rx="2"></rect>
+                        <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
+                      </svg>
+                      <span>复制</span>
+                    </button>
+                  </div>
+                </div>
+                <pre id="frida-log-output">暂无 Frida 日志</pre>
+              </div>
+              </div>
+            </section>
+
+            <section class="panel frida-guide" aria-labelledby="frida-guide-title">
+            <div class="panel-heading">
+              <h2 id="frida-guide-title">使用方法</h2>
+            </div>
+
+            <div class="guide-content">
+              <p class="guide-note">仅用于自有或已获授权的测试设备和应用。</p>
+
+              <details open>
+                <summary>Frida 注入</summary>
+                <ol>
+                  <li>界面显示 Frida 不可用时，先在当前 Python 环境安装 <code>frida-tools</code> 14 或更高版本。</li>
+                  <li>Android 开启 USB 调试，并确认设备已连接。</li>
+                  <li>点击“启动 Frida 与代理”会启动代理、应用设备系统代理并自动检测 root；有 root 时下载并启动匹配版本的 <code>frida-server</code>。</li>
+                  <li>无 root 时仅对可调试 App 自动准备 Gadget；不可调试 App 仍需重打包注入 Gadget。</li>
+                  <li>MuMu、LDPlayer 等 x86_64 Native Bridge 环境运行 arm64 App 时，Frida Spawn 会触发 SIGSEGV，请改用 ARM64 原生模拟器或 ARM64 真机。</li>
+                  <li>App 会被重新拉起；脚本安装完成后重新操作目标功能。</li>
+                </ol>
+              </details>
+
+              <details>
+                <summary>系统 CA</summary>
+                <p>将当前 CA 根证书安装到 Android 系统信任库，通常需要 root、Magisk 系统证书模块或可写系统分区。</p>
+                <p>Android 7 及以上版本默认不信任用户证书；仅安装用户 CA 通常无法解决 App 的 <code>certificate unknown</code>。</p>
+              </details>
+
+              <details>
+                <summary>Reqable SSL Bypass</summary>
+                <p>可在支持 root 或模拟器的环境使用 Reqable 的 SSL Bypass。它适合作为 Frida 之外的验证方式，但不能覆盖所有加固和原生 pinning。</p>
+              </details>
+
+              <details>
+                <summary>Network Security Config</summary>
+                <p>仅对自有测试包或允许重打包的 App 使用。为 debug 构建配置用户 CA 信任，或调整证书校验逻辑后再签名安装。</p>
+              </details>
+
+              <details>
+                <summary>无线 ADB</summary>
+                <p>Android 11 及以上在“无线调试”中分别查看设备地址和配对地址。先填写设备地址，再用配对地址和 6 位配对码执行“配对并连接”。</p>
+                <p>已通过 USB 执行过 <code>adb tcpip 5555</code> 的设备，或已开启无线调试的设备，也可直接填写 <code>IP:端口</code> 后点击“连接”。</p>
+              </details>
+
+              <details>
+                <summary>ADB 系统代理</summary>
+                <p>“启动并应用代理”只启动本工具代理，并为所选设备执行 <code>adb reverse</code> 和设置 Android 全局 HTTP 代理；不会启动目标 App。</p>
+                <p>通过 ADB 自动应用时，设备端使用 <code>127.0.0.1:28081</code>，由 <code>adb reverse</code> 转发到电脑。若在局域网设备上手动填写 Wi-Fi 代理，<code>127.0.0.1</code> 指设备自身，必须改为电脑局域网 IP，例如 <code>192.168.1.10:28081</code>。</p>
+                <p>停止代理或关闭本工具时会恢复设备原代理。设备异常断开时，应重新连接后点击“恢复代理”。</p>
+              </details>
+
+              <details>
+                <summary>Native Pinning</summary>
+                <p>Flutter、BoringSSL、自研 native 网络库或加固壳可能绕过 Java TrustManager。此时需要 native hook、魔改库或针对目标二进制的专用方案。</p>
+              </details>
+            </div>
+            </section>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <p class="feedback-toast" id="feedback" role="status" data-tone="error" hidden></p>
+  <script src="app.js"></script>
+</body>
+</html>

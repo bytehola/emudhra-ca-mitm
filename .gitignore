@@ -1,0 +1,24 @@
+# Python 运行与构建产物
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+build/
+dist/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 本地测试与签发产物
+logs/
+*.log
+out/
+*.srl
+
+# 本地运行配置
+config/
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
